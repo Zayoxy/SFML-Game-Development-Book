@@ -1,5 +1,5 @@
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.20)
 
 # Specify default build type if none provided (before project() command)
 if(NOT CMAKE_BUILD_TYPE)
@@ -16,12 +16,7 @@ endif()
 project(sfml-book)
 
 # Configuration options
-set(SFML_STATIC_LIBRARIES FALSE CACHE BOOL "Use static SFML librares")
-
-# General compiler options
-if (SFML_STATIC_LIBRARIES)
-	add_definitions(-DSFML_STATIC)
-endif()
+option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 
 # Specific compiler options - set C++11 flag for g++ and clang
 if(CMAKE_COMPILER_IS_GNUCXX)
@@ -37,22 +32,17 @@ endif()
 
 #####################################################################################################################################
 
+# Download SFML
+include(FetchContent)
+FetchContent_Declare(SFML
+    GIT_REPOSITORY https://github.com/SFML/SFML.git
+    GIT_TAG 2.6.x
+    GIT_SHALLOW ON
+    EXCLUDE_FROM_ALL
+    SYSTEM)
+FetchContent_MakeAvailable(SFML)
 
-# Add directory containing FindSFML.cmake to module path
-set (CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/CMake/;${CMAKE_MODULE_PATH}")
-
-# Find SFML
-# Note: SFML_STATIC_LIBRARIES determines which libraries are found by find_package()
-find_package(SFML 2 COMPONENTS audio graphics window system network)
-
-# If found, include and link; otherwise output error message
-if(SFML_FOUND)
-	include_directories(${SFML_INCLUDE_DIR})
-else()
-	set(SFML_ROOT "" CACHE PATH "SFML top-level directory")
-	message("\n-> SFML directory not found. Set SFML_ROOT to SFML's top-level path (containing \"include\" and \"lib\" directories).")
-	message("-> Make sure the SFML libraries with the same configuration (Release/Debug, Static/Dynamic) exist.\n")
-endif()
+set(SFML_LIBRARIES sfml-graphics sfml-window sfml-system sfml-audio sfml-network)
 
 ######################################################################################################################################
 
@@ -115,13 +105,33 @@ macro(build_chapter CHAPTER_NAME)
 	if(SFML_VERSION_MINOR LESS 2)
         set(SFML_DEPENDENCIES "")
 	endif()
-	target_link_libraries(${PROJECT_NAME} ${SFML_LIBRARIES} ${SFML_DEPENDENCIES})
+
+	target_link_libraries(${PROJECT_NAME} PRIVATE ${SFML_LIBRARIES})
+	target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
 
 	install(TARGETS ${PROJECT_NAME}	RUNTIME DESTINATION ${CHAPTER_NAME})
 
 	install(DIRECTORY ${CHAPTER_DIR}/Media
 			DESTINATION ${PROJECT_NAME}
 			PATTERN "CMakeLists.txt" EXCLUDE)
+
+	# Copy OpenAL DLL if on Windows
+	if(WIN32)
+		add_custom_command(
+			TARGET ${PROJECT_NAME}
+			COMMENT "Copy OpenAL DLL"
+			PRE_BUILD COMMAND ${CMAKE_COMMAND} -E copy ${SFML_SOURCE_DIR}/extlibs/bin/$<IF:$<EQUAL:${CMAKE_SIZEOF_VOID_P},8>,x64,x86>/openal32.dll $<TARGET_FILE_DIR:${PROJECT_NAME}>
+			VERBATIM)
+	endif()
+
+	# Copy Media files to output directory
+	add_custom_command(
+		TARGET ${PROJECT_NAME}
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			${CHAPTER_DIR}/Media
+			$<TARGET_FILE_DIR:${PROJECT_NAME}>/Media
+		COMMENT "Copy Media files"
+		VERBATIM)
 endmacro()
 
 # C++ source code, list of all subdirectories
